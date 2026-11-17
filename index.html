@@ -10,6 +10,8 @@
     <link rel="stylesheet" href="style.css">
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="[https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2](https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2)"></script>
+    
 </head>
 
 <body class="flex h-screen overflow-hidden text-slate-800">
@@ -395,187 +397,254 @@
     <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>
 
     <script>
-        // --- DATA LAYER (Simulating Firebase via LocalStorage) ---
-        const DB = {
-            getProducts: () => JSON.parse(localStorage.getItem('pos_products')) || [],
-            saveProducts: (data) => localStorage.setItem('pos_products', JSON.stringify(data)),
-            
-            getTransactions: () => JSON.parse(localStorage.getItem('pos_trx')) || [],
-            saveTransactions: (data) => localStorage.setItem('pos_trx', JSON.stringify(data)),
-            
-            getInventoryLogs: () => JSON.parse(localStorage.getItem('pos_inv_logs')) || [],
-            saveInventoryLogs: (data) => localStorage.setItem('pos_inv_logs', JSON.stringify(data)),
-        };
+        // --- KONFIGURASI SUPABASE ---
+const SUPABASE_URL = 'https://zwaenwwuhhsooleghmgm.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_M0EpE8T6dbW8sSNNgzCKIw_yMaQPP8d';
+const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-        // --- APP STATE ---
-        let currentMenu = 'sales';
-        let cart = [];
-        let cartTotal = 0;
-        let salesChartInstance = null; // Tambahkan baris ini untuk menyimpan instance grafik
+// --- CACHE LOKAL (Agar UI tetap cepat & responsif) ---
+let cacheProducts = [];
+let cacheTransactions = [];
 
-        // --- UTILS ---
-        const formatRupiah = (num) => 'Rp ' + Number(num).toLocaleString('id-ID');
-        const formatNumber = (num) => num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, "."); // Pemisah ribuan
-        
-        function showToast(message, type = 'success') {
-            const container = document.getElementById('toast-container');
-            const toast = document.createElement('div');
-            const colors = type === 'success' ? 'bg-emerald-500' : (type === 'error' ? 'bg-red-500' : 'bg-blue-500');
-            const icon = type === 'success' ? 'ph-check-circle' : 'ph-warning-circle';
-            
-            toast.className = `${colors} text-white px-4 py-3 rounded-xl shadow-lg flex items-center gap-3 toast-enter pointer-events-auto`;
-            toast.innerHTML = `<i class="ph ${icon} text-xl"></i> <span class="text-sm font-medium">${message}</span>`;
-            
-            container.appendChild(toast);
-            setTimeout(() => {
-                toast.style.opacity = '0';
-                toast.style.transform = 'translateY(20px)';
-                toast.style.transition = 'all 0.3s ease';
-                setTimeout(() => toast.remove(), 300);
-            }, 3000);
-        }
+// --- APP STATE ---
+let currentMenu = 'sales';
+let cart = [];
+let cartTotal = 0;
+let salesChartInstance = null;
 
-        // --- UI NAVIGATION ---
-        function switchMenu(menuId) {
-            document.querySelectorAll('.menu-item').forEach(el => el.classList.remove('active'));
-            document.getElementById(`nav-${menuId}`).classList.add('active');
+// --- UTILS ---
+const formatRupiah = (num) => 'Rp ' + Number(num).toLocaleString('id-ID');
+const formatNumber = (num) => num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 
-            ['sales', 'master', 'inventory', 'reports'].forEach(id => {
-                document.getElementById(`menu-${id}`).classList.add('hidden');
-            });
-            document.getElementById(`menu-${menuId}`).classList.remove('hidden');
+function setLoading(isLoading) {
+    const loader = document.getElementById('loading');
+    if (isLoading) loader.classList.remove('hidden');
+    else loader.classList.add('hidden');
+}
 
-            if (menuId === 'master') renderMasterTable();
-            if (menuId === 'inventory') renderInventoryTable();
-            if (menuId === 'sales') renderSalesProducts();
-            if (menuId === 'reports') renderReports();
-        }
-
-        function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
-        function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
-
-        // --- MASTER PRODUK & INVENTORY LOGIC ---
-        document.getElementById('form-add-product').addEventListener('submit', (e) => {
-            e.preventDefault();
-            const sku = document.getElementById('add-sku').value.trim();
-            let products = DB.getProducts();
-            
-            if (products.some(p => p.sku === sku)) {
-                showToast('SKU sudah terdaftar!', 'error');
-                return;
-            }
-
-            const newProduct = {
-                sku,
-                name: document.getElementById('add-name').value,
-                category: document.getElementById('add-category').value,
-                unit: document.getElementById('add-unit').value,
-                costPrice: Number(document.getElementById('add-cost').value),
-                sellPrice: Number(document.getElementById('add-price').value),
-                stock: Number(document.getElementById('add-stock').value),
-                minStock: Number(document.getElementById('add-minstock').value)
-            };
-
-            products.push(newProduct);
-            DB.saveProducts(products);
-
-            if (newProduct.stock > 0) {
-                const logs = DB.getInventoryLogs();
-                logs.push({ date: new Date().toISOString(), sku, type: 'in', qty: newProduct.stock, note: 'Stok Awal' });
-                DB.saveInventoryLogs(logs);
-            }
-
-            closeModal('modal-add-product');
-            e.target.reset();
-            showToast('Produk berhasil ditambahkan');
-            renderInventoryTable(); 
-            updateAdjSelect();
-        });
-
-        document.getElementById('form-stock-adj').addEventListener('submit', (e) => {
-            e.preventDefault();
-            const sku = document.getElementById('adj-sku').value;
-            const type = document.getElementById('adj-type').value;
-            const qty = Number(document.getElementById('adj-qty').value);
-            const note = document.getElementById('adj-note').value || 'Penyesuaian manual';
-
-            let products = DB.getProducts();
-            const pIndex = products.findIndex(p => p.sku === sku);
-            if (pIndex === -1) return;
-
-            if (type === 'in') products[pIndex].stock += qty;
-            else if (type === 'out') {
-                products[pIndex].stock -= qty; // Mengizinkan stok keluar (bisa minus) agar tidak terblokir
-            } else if (type === 'opname') {
-                products[pIndex].stock = qty; 
-            }
-
-            DB.saveProducts(products);
-            
-            const logs = DB.getInventoryLogs();
-            logs.push({ date: new Date().toISOString(), sku, type, qty, note });
-            DB.saveInventoryLogs(logs);
-
-            closeModal('modal-stock-inout');
-            e.target.reset();
-            showToast('Stok berhasil diperbarui');
-            renderInventoryTable();
-        });
-
-        document.getElementById('form-edit-product').addEventListener('submit', (e) => {
-    e.preventDefault();
+function showToast(message, type = 'success') {
+    const container = document.getElementById('toast-container');
+    const toast = document.createElement('div');
+    const colors = type === 'success' ? 'bg-emerald-500' : (type === 'error' ? 'bg-red-500' : 'bg-blue-500');
+    const icon = type === 'success' ? 'ph-check-circle' : 'ph-warning-circle';
     
+    toast.className = `${colors} text-white px-4 py-3 rounded-xl shadow-lg flex items-center gap-3 toast-enter pointer-events-auto`;
+    toast.innerHTML = `<i class="ph ${icon} text-xl"></i> <span class="text-sm font-medium">${message}</span>`;
+    
+    container.appendChild(toast);
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(20px)';
+        toast.style.transition = 'all 0.3s ease';
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
+}
+
+// --- DATA LAYER (SUPABASE) ---
+async function fetchProducts() {
+    const { data, error } = await supabaseClient
+        .from('pos_products')
+        .select('*')
+        .order('name', { ascending: true });
+        
+    if (error) {
+        console.error(error);
+        showToast('Gagal memuat produk dari Supabase', 'error');
+        return [];
+    }
+    
+    // Sesuaikan nama kolom database (snake_case) ke format aplikasi (camelCase)
+    cacheProducts = data.map(item => ({
+        sku: item.sku,
+        name: item.name,
+        category: item.category,
+        unit: item.unit,
+        costPrice: Number(item.cost_price),
+        sellPrice: Number(item.sell_price),
+        stock: Number(item.stock),
+        minStock: Number(item.min_stock)
+    }));
+    return cacheProducts;
+}
+
+async function fetchTransactions() {
+    const { data, error } = await supabaseClient
+        .from('pos_transactions')
+        .select('*')
+        .order('date', { ascending: false });
+        
+    if (error) {
+        console.error(error);
+        showToast('Gagal memuat transaksi dari Supabase', 'error');
+        return [];
+    }
+    cacheTransactions = data;
+    return cacheTransactions;
+}
+
+// --- UI NAVIGATION ---
+async function switchMenu(menuId) {
+    document.querySelectorAll('.menu-item').forEach(el => el.classList.remove('active'));
+    document.getElementById(`nav-${menuId}`).classList.add('active');
+
+    ['sales', 'master', 'inventory', 'reports'].forEach(id => {
+        document.getElementById(`menu-${id}`).classList.add('hidden');
+    });
+    document.getElementById(`menu-${menuId}`).classList.remove('hidden');
+
+    setLoading(true);
+    if (menuId === 'master') {
+        await fetchProducts();
+        renderMasterTable();
+    } else if (menuId === 'inventory') {
+        await fetchProducts();
+        renderInventoryTable();
+    } else if (menuId === 'sales') {
+        await fetchProducts();
+        renderSalesProducts();
+    } else if (menuId === 'reports') {
+        await Promise.all([fetchProducts(), fetchTransactions()]);
+        renderReports();
+    }
+    setLoading(false);
+}
+
+function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
+function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+
+// --- MASTER PRODUK & INVENTORY LOGIC ---
+document.getElementById('form-add-product').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const sku = document.getElementById('add-sku').value.trim();
+    
+    if (cacheProducts.some(p => p.sku === sku)) {
+        showToast('SKU sudah terdaftar!', 'error');
+        return;
+    }
+
+    setLoading(true);
+    const stockAwal = Number(document.getElementById('add-stock').value);
+    
+    const { error } = await supabaseClient.from('pos_products').insert([{
+        sku: sku,
+        name: document.getElementById('add-name').value,
+        category: document.getElementById('add-category').value,
+        unit: document.getElementById('add-unit').value,
+        cost_price: Number(document.getElementById('add-cost').value),
+        sell_price: Number(document.getElementById('add-price').value),
+        stock: stockAwal,
+        min_stock: Number(document.getElementById('add-minstock').value)
+    }]);
+
+    if (error) {
+        setLoading(false);
+        showToast('Gagal menyimpan produk: ' + error.message, 'error');
+        return;
+    }
+
+    if (stockAwal > 0) {
+        await supabaseClient.from('pos_inventory_logs').insert([{
+            sku: sku,
+            type: 'in',
+            qty: stockAwal,
+            note: 'Stok Awal'
+        }]);
+    }
+
+    await fetchProducts();
+    setLoading(false);
+    closeModal('modal-add-product');
+    e.target.reset();
+    showToast('Produk berhasil ditambahkan ke Supabase');
+    renderInventoryTable();
+});
+
+document.getElementById('form-stock-adj').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const sku = document.getElementById('adj-sku').value;
+    const type = document.getElementById('adj-type').value;
+    const qty = Number(document.getElementById('adj-qty').value);
+    const note = document.getElementById('adj-note').value || 'Penyesuaian manual';
+
+    const product = cacheProducts.find(p => p.sku === sku);
+    if (!product) return;
+
+    let updatedStock = product.stock;
+    if (type === 'in') updatedStock += qty;
+    else if (type === 'out') updatedStock -= qty;
+    else if (type === 'opname') updatedStock = qty;
+
+    setLoading(true);
+    const { error } = await supabaseClient
+        .from('pos_products')
+        .update({ stock: updatedStock })
+        .eq('sku', sku);
+
+    if (error) {
+        setLoading(false);
+        showToast('Gagal update stok: ' + error.message, 'error');
+        return;
+    }
+
+    await supabaseClient.from('pos_inventory_logs').insert([{
+        sku: sku,
+        type: type,
+        qty: qty,
+        note: note
+    }]);
+
+    await fetchProducts();
+    setLoading(false);
+    closeModal('modal-stock-inout');
+    e.target.reset();
+    showToast('Stok berhasil diperbarui');
+    renderInventoryTable();
+});
+
+document.getElementById('form-edit-product').addEventListener('submit', async (e) => {
+    e.preventDefault();
     const oldSku = document.getElementById('edit-old-sku').value;
     const newSku = document.getElementById('edit-sku').value.trim();
     const newName = document.getElementById('edit-name').value.trim();
     
-    let products = DB.getProducts();
-    
-    // Cek apakah SKU baru sudah dipakai oleh produk LAIN
-    if (newSku !== oldSku && products.some(p => p.sku === newSku)) {
+    if (newSku !== oldSku && cacheProducts.some(p => p.sku === newSku)) {
         showToast('SKU baru sudah terdaftar pada produk lain!', 'error');
         return;
     }
 
-    // Cari index produk yang sedang diedit
-    const pIndex = products.findIndex(p => p.sku === oldSku);
-    
-    if (pIndex > -1) {
-        // Update data
-        products[pIndex].sku = newSku;
-        products[pIndex].name = newName;
-        
-        // Simpan kembali ke Database (Local Storage)
-        DB.saveProducts(products);
-        
-        // Tutup modal dan refresh tampilan
-        closeModal('modal-edit-product');
-        showToast('Produk berhasil diperbarui');
-        renderMasterTable();
-        renderInventoryTable(); // Refresh tabel stok juga karena nama/SKU berubah
-        updateAdjSelect();      // Refresh dropdown penyesuaian stok
+    setLoading(true);
+    const { error } = await supabaseClient
+        .from('pos_products')
+        .update({ sku: newSku, name: newName })
+        .eq('sku', oldSku);
+
+    if (error) {
+        setLoading(false);
+        showToast('Gagal memperbarui produk: ' + error.message, 'error');
+        return;
     }
+
+    await fetchProducts();
+    setLoading(false);
+    closeModal('modal-edit-product');
+    showToast('Produk berhasil diperbarui');
+    renderMasterTable();
+    renderInventoryTable();
 });
 
-        function openEditModal(sku) {
-    const products = DB.getProducts();
-    const product = products.find(p => p.sku === sku);
-    
+function openEditModal(sku) {
+    const product = cacheProducts.find(p => p.sku === sku);
     if (product) {
-        // Isi inputan dengan data lama
         document.getElementById('edit-old-sku').value = product.sku;
         document.getElementById('edit-sku').value = product.sku;
         document.getElementById('edit-name').value = product.name;
-        
-        // Buka modal
         openModal('modal-edit-product');
     }
 }
 
-        function renderMasterTable() {
+function renderMasterTable() {
     const tbody = document.getElementById('master-table-body');
-    const products = DB.getProducts();
-    tbody.innerHTML = products.map(p => `
+    tbody.innerHTML = cacheProducts.map(p => `
         <tr class="hover:bg-slate-50/50 transition">
             <td class="p-4 font-mono text-xs text-blue-600">${p.sku}</td>
             <td class="p-4 font-medium">${p.name}</td>
@@ -585,147 +654,126 @@
             <td class="p-4 text-right font-medium text-emerald-600">${formatRupiah(p.sellPrice)}</td>
             <td class="p-4 text-center font-bold">${p.stock}</td>
             <td class="p-4 text-center">
-                <!-- Tombol Edit yang memanggil fungsi openEditModal -->
                 <button onclick="openEditModal('${p.sku}')" class="bg-blue-100 text-blue-600 hover:bg-blue-600 hover:text-white px-3 py-1 rounded-lg text-xs font-bold transition shadow-sm">
                     <i class="ph ph-pencil-simple"></i> Edit
                 </button>
             </td>
         </tr>
     `).join('');
-    
-    // Jangan lupa tambahkan <th class="p-4 font-semibold text-center">Aksi</th> di thead HTML Anda jika ingin rapi
-    if (products.length === 0) tbody.innerHTML = `<tr><td colspan="8" class="p-6 text-center text-slate-400">Belum ada data produk.</td></tr>`;
+    if (cacheProducts.length === 0) tbody.innerHTML = `<tr><td colspan="8" class="p-6 text-center text-slate-400">Belum ada data produk.</td></tr>`;
 }
 
-        function renderInventoryTable() {
-            const tbody = document.getElementById('inventory-table-body');
-            const products = DB.getProducts();
-            updateAdjSelect(products);
+function renderInventoryTable() {
+    const tbody = document.getElementById('inventory-table-body');
+    updateAdjSelect(cacheProducts);
 
-            tbody.innerHTML = products.map(p => {
-                const isLow = p.stock <= p.minStock;
-                return `
-                <tr class="hover:bg-slate-50/50 transition">
-                    <td class="p-4 font-mono text-xs">${p.sku}</td>
-                    <td class="p-4 font-medium">${p.name}</td>
-                    <td class="p-4 text-center">${p.minStock}</td>
-                    <td class="p-4 text-center font-bold text-lg ${isLow ? 'text-red-500' : 'text-slate-700'}">${p.stock}</td>
-                    <td class="p-4 text-center">
-                        ${isLow 
-                            ? `<span class="bg-red-100 text-red-600 px-3 py-1 rounded-full text-xs font-bold flex items-center justify-center gap-1 w-max mx-auto"><i class="ph ph-warning-circle"></i> Rendah</span>` 
-                            : `<span class="bg-emerald-100 text-emerald-600 px-3 py-1 rounded-full text-xs font-bold w-max mx-auto block">Aman</span>`}
-                    </td>
-                </tr>
-            `}).join('');
-            if (products.length === 0) tbody.innerHTML = `<tr><td colspan="5" class="p-6 text-center text-slate-400">Belum ada data produk.</td></tr>`;
-        }
+    tbody.innerHTML = cacheProducts.map(p => {
+        const isLow = p.stock <= p.minStock;
+        return `
+        <tr class="hover:bg-slate-50/50 transition">
+            <td class="p-4 font-mono text-xs">${p.sku}</td>
+            <td class="p-4 font-medium">${p.name}</td>
+            <td class="p-4 text-center">${p.minStock}</td>
+            <td class="p-4 text-center font-bold text-lg ${isLow ? 'text-red-500' : 'text-slate-700'}">${p.stock}</td>
+            <td class="p-4 text-center">
+                ${isLow 
+                    ? `<span class="bg-red-100 text-red-600 px-3 py-1 rounded-full text-xs font-bold flex items-center justify-center gap-1 w-max mx-auto"><i class="ph ph-warning-circle"></i> Rendah</span>` 
+                    : `<span class="bg-emerald-100 text-emerald-600 px-3 py-1 rounded-full text-xs font-bold w-max mx-auto block">Aman</span>`}
+            </td>
+        </tr>
+    `}).join('');
+    if (cacheProducts.length === 0) tbody.innerHTML = `<tr><td colspan="5" class="p-6 text-center text-slate-400">Belum ada data produk.</td></tr>`;
+}
 
-        function updateAdjSelect(products = null) {
-            if (!products) products = DB.getProducts();
-            const select = document.getElementById('adj-sku');
-            select.innerHTML = products.map(p => `<option value="${p.sku}">${p.sku} - ${p.name} (Stok: ${p.stock})</option>`).join('');
-        }
+function updateAdjSelect(products = cacheProducts) {
+    const select = document.getElementById('adj-sku');
+    select.innerHTML = products.map(p => `<option value="${p.sku}">${p.sku} - ${p.name} (Stok: ${p.stock})</option>`).join('');
+}
 
-        // --- SALES LOGIC ---
-        function renderSalesProducts(filter = '') {
-            const grid = document.getElementById('sales-product-grid');
-            const products = DB.getProducts().filter(p => 
-                p.name.toLowerCase().includes(filter.toLowerCase()) || 
-                p.sku.toLowerCase().includes(filter.toLowerCase())
-            );
+// --- SALES LOGIC ---
+function renderSalesProducts(filter = '') {
+    const grid = document.getElementById('sales-product-grid');
+    const products = cacheProducts.filter(p => 
+        p.name.toLowerCase().includes(filter.toLowerCase()) || 
+        p.sku.toLowerCase().includes(filter.toLowerCase())
+    );
 
-            grid.innerHTML = products.map(p => {
-                const inCart = cart.find(c => c.sku === p.sku)?.qty || 0;
-                const available = p.stock - inCart;
-                const isLow = available <= p.minStock;
+    grid.innerHTML = products.map(p => {
+        const inCart = cart.find(c => c.sku === p.sku)?.qty || 0;
+        const available = p.stock - inCart;
+        const isLow = available <= p.minStock;
 
-                // Tombol sekarang SELALU BISA DIKLIK (onclick tidak dihapus) meskipun stok minus.
-                return `
-                <div class="bg-white/60 border ${available <= 0 ? 'border-red-300' : 'border-white/40'} p-4 rounded-xl shadow-sm hover:shadow-md transition cursor-pointer flex flex-col h-full" 
-                     onclick="addToCart('${p.sku}')">
-                    <div class="text-xs text-slate-400 font-mono mb-1">${p.sku}</div>
-                    <div class="font-bold text-slate-800 leading-tight mb-2 flex-1">${p.name}</div>
-                    <div class="flex justify-between items-end mt-auto">
-                        <div class="text-blue-600 font-bold text-sm">${formatRupiah(p.sellPrice)}</div>
-                        <div class="text-xs ${available <= 0 ? 'text-red-500 font-bold' : (isLow ? 'text-orange-500 font-bold' : 'text-slate-500')}">Stok: ${available}</div>
-                    </div>
-                </div>
-            `}).join('');
-            
-            if(products.length===0) grid.innerHTML = `<div class="col-span-full text-center text-slate-400 py-10">Produk tidak ditemukan atau belum ada data.</div>`;
-        }
-
-        function filterSalesProducts() {
-            renderSalesProducts(document.getElementById('search-product').value);
-        }
-
-        function addToCart(sku) {
-            const products = DB.getProducts();
-            const product = products.find(p => p.sku === sku);
-            if (!product) return;
-
-            const existing = cart.find(c => c.sku === sku);
-            
-            if (existing) {
-                // Hapus blocker: Biarkan kasir terus menambah qty walaupun melebihi stok sistem
-                existing.qty++;
-                existing.subtotal = existing.qty * existing.price;
-            } else {
-                cart.push({
-                    sku: product.sku,
-                    name: product.name,
-                    price: product.sellPrice,
-                    qty: 1,
-                    subtotal: product.sellPrice
-                });
-            }
-            renderCart();
-            renderSalesProducts(document.getElementById('search-product').value); 
-        }
-
-        function updateCartQty(sku, delta) {
-            const index = cart.findIndex(c => c.sku === sku);
-            if (index === -1) return;
-            
-            let newQty = cart[index].qty + delta;
-            
-            if (newQty <= 0) {
-                cart.splice(index, 1);
-            } else {
-                // Hapus blocker: Bebas menaikkan kuantitas dari tombol +
-                cart[index].qty = newQty;
-                cart[index].subtotal = newQty * cart[index].price;
-            }
-            
-            renderCart();
-            renderSalesProducts(document.getElementById('search-product').value);
-        }
-
-        function setCartQty(sku, val) {
-    // Ubah nilai yang diketik menjadi angka (integer)
-    let newQty = parseInt(val);
+        return `
+        <div class="bg-white/60 border ${available <= 0 ? 'border-red-300' : 'border-white/40'} p-4 rounded-xl shadow-sm hover:shadow-md transition cursor-pointer flex flex-col h-full" 
+             onclick="addToCart('${p.sku}')">
+            <div class="text-xs text-slate-400 font-mono mb-1">${p.sku}</div>
+            <div class="font-bold text-slate-800 leading-tight mb-2 flex-1">${p.name}</div>
+            <div class="flex justify-between items-end mt-auto">
+                <div class="text-blue-600 font-bold text-sm">${formatRupiah(p.sellPrice)}</div>
+                <div class="text-xs ${available <= 0 ? 'text-red-500 font-bold' : (isLow ? 'text-orange-500 font-bold' : 'text-slate-500')}">Stok: ${available}</div>
+            </div>
+        </div>
+    `}).join('');
     
-    // Cari produk di dalam keranjang
+    if(products.length === 0) grid.innerHTML = `<div class="col-span-full text-center text-slate-400 py-10">Produk tidak ditemukan atau belum ada data.</div>`;
+}
+
+function filterSalesProducts() {
+    renderSalesProducts(document.getElementById('search-product').value);
+}
+
+function addToCart(sku) {
+    const product = cacheProducts.find(p => p.sku === sku);
+    if (!product) return;
+
+    const existing = cart.find(c => c.sku === sku);
+    if (existing) {
+        existing.qty++;
+        existing.subtotal = existing.qty * existing.price;
+    } else {
+        cart.push({
+            sku: product.sku,
+            name: product.name,
+            price: product.sellPrice,
+            qty: 1,
+            subtotal: product.sellPrice
+        });
+    }
+    renderCart();
+    renderSalesProducts(document.getElementById('search-product').value); 
+}
+
+function updateCartQty(sku, delta) {
+    const index = cart.findIndex(c => c.sku === sku);
+    if (index === -1) return;
+    
+    let newQty = cart[index].qty + delta;
+    if (newQty <= 0) {
+        cart.splice(index, 1);
+    } else {
+        cart[index].qty = newQty;
+        cart[index].subtotal = newQty * cart[index].price;
+    }
+    renderCart();
+    renderSalesProducts(document.getElementById('search-product').value);
+}
+
+function setCartQty(sku, val) {
+    let newQty = parseInt(val);
     const index = cart.findIndex(c => c.sku === sku);
     if (index === -1) return;
 
     if (isNaN(newQty) || newQty <= 0) {
-        // Jika diketik angka 0 atau kosong, hapus produk dari keranjang
         cart.splice(index, 1);
     } else {
-        // Jika angkanya valid, update qty dan hitung ulang subtotalnya
         cart[index].qty = newQty;
         cart[index].subtotal = newQty * cart[index].price;
     }
-    
-    // Refresh tampilan keranjang
     renderCart();
     renderSalesProducts(document.getElementById('search-product').value);
-
-    
 }
 
-        function renderCart() {
+function renderCart() {
     const container = document.getElementById('cart-items');
     const btnPay = document.getElementById('btn-pay');
     
@@ -735,173 +783,167 @@
         btnPay.disabled = true;
     } else {
         btnPay.disabled = false;
-        
         container.innerHTML = cart.map(item => `
             <div class="bg-white p-3 rounded-xl shadow-sm border border-slate-100 flex flex-col gap-2">
                 <div class="font-semibold text-sm line-clamp-1">${item.name}</div>
                 <div class="flex justify-between items-center">
                     <div class="text-blue-600 font-bold text-sm">${formatRupiah(item.subtotal)}</div>
                     <div class="flex items-center gap-2 bg-slate-100 rounded-lg p-1">
-                        
                         <button onclick="updateCartQty('${item.sku}', -1)" class="w-6 h-6 flex items-center justify-center bg-white rounded shadow-sm text-slate-600 hover:text-red-500"><i class="ph ph-minus"></i></button>
-                        
                         <input type="number" id="qty-${item.sku}" min="1" value="${item.qty}" 
                             onchange="setCartQty('${item.sku}', this.value)"
                             onkeyup="if(event.key === 'Enter') this.blur();"
                             class="text-sm font-bold w-12 text-center bg-white border border-slate-300 rounded focus:border-blue-500 outline-none">
-                        
                         <button onclick="updateCartQty('${item.sku}', 1)" class="w-6 h-6 flex items-center justify-center bg-white rounded shadow-sm text-slate-600 hover:text-blue-500"><i class="ph ph-plus"></i></button>
                     </div>
                 </div>
             </div>
         `).join('');
-        
         cartTotal = cart.reduce((sum, item) => sum + item.subtotal, 0);
     }
     document.getElementById('cart-total-display').innerText = formatRupiah(cartTotal);
 }
 
-        // --- PAYMENT LOGIC ---
-        const inputAmount = document.getElementById('pay-amount');
-        const btnConfirm = document.getElementById('btn-confirm-pay');
-        const changeContainer = document.getElementById('pay-change-container');
-        const changeDisplay = document.getElementById('pay-change-display');
+// --- PAYMENT LOGIC ---
+const inputAmount = document.getElementById('pay-amount');
+const btnConfirm = document.getElementById('btn-confirm-pay');
+const changeContainer = document.getElementById('pay-change-container');
+const changeDisplay = document.getElementById('pay-change-display');
 
-        function openPaymentModal() {
-            document.getElementById('pay-total-display').innerText = formatRupiah(cartTotal);
-            inputAmount.value = '';
-            changeContainer.classList.add('hidden');
-            btnConfirm.disabled = true;
-            openModal('modal-payment');
-            setTimeout(() => inputAmount.focus(), 100);
+function openPaymentModal() {
+    document.getElementById('pay-total-display').innerText = formatRupiah(cartTotal);
+    inputAmount.value = '';
+    changeContainer.classList.add('hidden');
+    btnConfirm.disabled = true;
+    openModal('modal-payment');
+    setTimeout(() => inputAmount.focus(), 100);
+}
+
+inputAmount.addEventListener('input', (e) => {
+    let rawValue = e.target.value.replace(/[^0-9]/g, '');
+    if(rawValue === '') {
+        e.target.value = '';
+        changeContainer.classList.add('hidden');
+        btnConfirm.disabled = true;
+        return;
+    }
+    e.target.value = formatNumber(rawValue);
+    const amount = Number(rawValue);
+    if (amount >= cartTotal) {
+        const change = amount - cartTotal;
+        changeDisplay.innerText = formatRupiah(change);
+        changeContainer.classList.remove('hidden');
+        btnConfirm.disabled = false;
+    } else {
+        changeContainer.classList.add('hidden');
+        btnConfirm.disabled = true;
+    }
+});
+
+async function processPayment() {
+    const amount = Number(inputAmount.value.replace(/[^0-9]/g, ''));
+    if (amount < cartTotal) return;
+
+    setLoading(true);
+    const trxId = 'TRX-' + Date.now();
+    const dateStr = new Date().toISOString();
+    
+    // 1. Simpan Transaksi ke Supabase
+    const { error: trxError } = await supabaseClient.from('pos_transactions').insert([{
+        id: trxId,
+        date: dateStr,
+        total: cartTotal,
+        payment: amount,
+        change: amount - cartTotal,
+        items: cart
+    }]);
+
+    if (trxError) {
+        setLoading(false);
+        showToast('Gagal menyimpan transaksi: ' + trxError.message, 'error');
+        return;
+    }
+
+    // 2. Kurangi stok & catat log
+    const logsToInsert = [];
+    for (const item of cart) {
+        const prod = cacheProducts.find(p => p.sku === item.sku);
+        if (prod) {
+            const newStock = prod.stock - item.qty;
+            await supabaseClient
+                .from('pos_products')
+                .update({ stock: newStock })
+                .eq('sku', item.sku);
         }
-
-        inputAmount.addEventListener('input', (e) => {
-            let rawValue = e.target.value.replace(/[^0-9]/g, '');
-            
-            if(rawValue === '') {
-                e.target.value = '';
-                changeContainer.classList.add('hidden');
-                btnConfirm.disabled = true;
-                return;
-            }
-
-            e.target.value = formatNumber(rawValue);
-
-            const amount = Number(rawValue);
-            if (amount >= cartTotal) {
-                const change = amount - cartTotal;
-                changeDisplay.innerText = formatRupiah(change);
-                changeContainer.classList.remove('hidden');
-                btnConfirm.disabled = false;
-            } else {
-                changeContainer.classList.add('hidden');
-                btnConfirm.disabled = true;
-            }
+        logsToInsert.push({
+            date: dateStr,
+            sku: item.sku,
+            type: 'out',
+            qty: item.qty,
+            note: `Penjualan ${trxId}`
         });
+    }
 
-        function processPayment() {
-            const amount = Number(inputAmount.value.replace(/[^0-9]/g, ''));
-            if (amount < cartTotal) return;
+    if (logsToInsert.length > 0) {
+        await supabaseClient.from('pos_inventory_logs').insert(logsToInsert);
+    }
 
-            const trxId = 'TRX-' + Date.now();
-            const dateStr = new Date().toISOString();
-            const transactions = DB.getTransactions();
-            
-            const newTrx = {
-                id: trxId,
-                date: dateStr,
-                total: cartTotal,
-                payment: amount,
-                change: amount - cartTotal,
-                items: [...cart]
-            };
-            transactions.push(newTrx);
-            DB.saveTransactions(transactions);
+    await fetchProducts();
+    setLoading(false);
+    closeModal('modal-payment');
+    showToast('Transaksi Berhasil Disimpan ke Cloud!');
+    
+    cart = [];
+    renderCart();
+    renderSalesProducts(); 
+}
 
-            let products = DB.getProducts();
-            let logs = DB.getInventoryLogs();
-            
-            cart.forEach(item => {
-                const pIdx = products.findIndex(p => p.sku === item.sku);
-                if(pIdx > -1) {
-                    // Stok akan otomatis berkurang (bisa menjadi minus jika kasir menjual melebihi sistem)
-                    products[pIdx].stock -= item.qty;
-                }
-                logs.push({ date: dateStr, sku: item.sku, type: 'out', qty: item.qty, note: `Penjualan ${trxId}` });
-            });
-            
-            DB.saveProducts(products);
-            DB.saveInventoryLogs(logs);
+// --- REPORTS LOGIC ---
+function renderReports() {
+    const today = new Date().toISOString().split('T')[0];
+    const thisMonth = today.substring(0, 7); 
 
-            closeModal('modal-payment');
-            showToast('Transaksi Berhasil Disimpan!');
-            
-            cart = [];
-            renderCart();
-            renderSalesProducts(); 
+    let todaySales = 0, todayTrxCount = 0, monthSales = 0;
+
+    cacheTransactions.forEach(t => {
+        const tDate = t.date.split('T')[0];
+        const tMonth = tDate.substring(0, 7);
+        if (tDate === today) {
+            todaySales += Number(t.total);
+            todayTrxCount++;
         }
-
-        // --- REPORTS LOGIC ---
-        function renderReports() {
-            const transactions = DB.getTransactions();
-            const products = DB.getProducts();
-            const today = new Date().toISOString().split('T')[0];
-            const thisMonth = today.substring(0, 7); 
-
-            let todaySales = 0, todayTrxCount = 0;
-            let monthSales = 0;
-
-            transactions.forEach(t => {
-                const tDate = t.date.split('T')[0];
-                const tMonth = tDate.substring(0, 7);
-                if (tDate === today) {
-                    todaySales += t.total;
-                    todayTrxCount++;
-                }
-                if (tMonth === thisMonth) {
-                    monthSales += t.total;
-                }
-            });
+        if (tMonth === thisMonth) {
+            monthSales += Number(t.total);
+        }
+    });
 
     document.getElementById('report-today-sales').innerText = formatRupiah(todaySales);
     document.getElementById('report-today-trx').innerText = todayTrxCount;
     document.getElementById('report-month-sales').innerText = formatRupiah(monthSales);
 
-    const lowStockCount = products.filter(p => p.stock <= p.minStock).length;
+    const lowStockCount = cacheProducts.filter(p => p.stock <= p.minStock).length;
     document.getElementById('report-low-stock').innerText = `${lowStockCount} Produk`;
 
-    // --- MULAI LOGIKA GRAFIK 7 HARI TERAKHIR ---
+    // Grafik 7 Hari Terakhir
     const chartLabels = [];
     const chartData = [];
     const dateObj = new Date();
 
-    // Buat array tanggal untuk 7 hari terakhir (Mundur)
     for (let i = 6; i >= 0; i--) {
         const d = new Date(dateObj);
         d.setDate(dateObj.getDate() - i);
         const isoDate = d.toISOString().split('T')[0];
-        
-        // Format label ke (DD MMM), contoh: "18 Nov"
         const labelStr = d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
         
         chartLabels.push(labelStr);
-        
-        // Hitung total penjualan untuk tanggal tersebut
-        const dailyTotal = transactions
+        const dailyTotal = cacheTransactions
             .filter(t => t.date.split('T')[0] === isoDate)
-            .reduce((sum, t) => sum + t.total, 0);
-            
+            .reduce((sum, t) => sum + Number(t.total), 0);
         chartData.push(dailyTotal);
     }
 
-    // Render grafik dengan Chart.js
     const ctx = document.getElementById('salesChart').getContext('2d');
-    
-    // Hancurkan chart lama jika ada agar tidak glitch saat menu diklik ulang
-    if (salesChartInstance) {
-        salesChartInstance.destroy();
-    }
+    if (salesChartInstance) salesChartInstance.destroy();
 
     salesChartInstance = new Chart(ctx, {
         type: 'line',
@@ -916,7 +958,7 @@
                 pointBackgroundColor: '#3b82f6',
                 pointRadius: 4,
                 fill: true,
-                tension: 0.3 // Membuat kurva garis sedikit melengkung (smooth)
+                tension: 0.3
             }]
         },
         options: {
@@ -926,35 +968,30 @@
                 y: {
                     beginAtZero: true,
                     ticks: {
-                        callback: function(value) {
-                            return 'Rp ' + value.toLocaleString('id-ID');
-                        }
+                        callback: (value) => 'Rp ' + value.toLocaleString('id-ID')
                     }
                 }
             },
             plugins: {
                 tooltip: {
                     callbacks: {
-                        label: function(context) {
-                            return 'Omset: Rp ' + context.parsed.y.toLocaleString('id-ID');
-                        }
+                        label: (context) => 'Omset: Rp ' + context.parsed.y.toLocaleString('id-ID')
                     }
                 }
             }
         }
     });
-    // --- AKHIR LOGIKA GRAFIK ---
 
-    // Top Products dan Recent Transactions (Tetap biarkan seperti sebelumnya)
+    // Top Products
     const itemSales = {}; 
-    transactions.forEach(t => {
+    cacheTransactions.forEach(t => {
         t.items.forEach(item => {
             itemSales[item.sku] = (itemSales[item.sku] || 0) + item.qty;
         });
     });
 
     const topArr = Object.keys(itemSales).map(sku => {
-        const p = products.find(p => p.sku === sku);
+        const p = cacheProducts.find(p => p.sku === sku);
         return { name: p ? p.name : sku, qty: itemSales[sku] };
     }).sort((a,b) => b.qty - a.qty).slice(0, 5); 
 
@@ -965,11 +1002,11 @@
         </tr>
     `).join('') : `<tr><td colspan="2" class="py-4 text-center text-slate-400">Belum ada data penjualan</td></tr>`;
 
-    const recent = [...transactions].sort((a,b) => new Date(b.date) - new Date(a.date)).slice(0, 5);
+    // Recent Transactions
+    const recent = cacheTransactions.slice(0, 5);
     document.getElementById('report-recent-trx').innerHTML = recent.length ? recent.map(t => {
         const productNames = t.items.map(i => i.name).join(', ');
         const totalQty = t.items.reduce((sum, i) => sum + i.qty, 0);
-        
         return `
         <tr>
             <td class="py-3 font-mono text-xs text-slate-500">${t.id}</td>
@@ -980,16 +1017,10 @@
     `}).join('') : `<tr><td colspan="4" class="py-4 text-center text-slate-400">Belum ada transaksi</td></tr>`;
 }
 
-        // --- INIT ---
-        window.onload = () => {
-            if (DB.getProducts().length === 0) {
-                DB.saveProducts([
-                    { sku: 'SKU001', name: 'Kopi Susu Gula Aren', category: 'Minuman', unit: 'Pcs', costPrice: 10000, sellPrice: 18000, stock: 50, minStock: 10 },
-                    { sku: 'SKU002', name: 'Roti Bakar Coklat', category: 'Makanan', unit: 'Pcs', costPrice: 8000, sellPrice: 15000, stock: 5, minStock: 10 }
-                ]);
-            }
-            switchMenu('sales');
-        };
+// --- INIT ---
+window.onload = async () => {
+    await switchMenu('sales');
+};
     </script>
 </body>
 </html>
