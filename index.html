@@ -41,6 +41,10 @@
                 <i class="ph ph-chart-line-up text-2xl shrink-0"></i>
                 <span class="hidden md:block truncate">Laporan</span>
             </button>
+            <button onclick="switchMenu('calculator')" id="nav-calculator" class="menu-item flex items-center gap-4 px-6 py-3 text-white/80 hover:text-white w-full text-left">
+                <i class="ph ph-calculator text-2xl shrink-0"></i>
+                <span class="hidden md:block truncate">Perhitungan Barang</span>
+            </button>
         </nav>
     </aside>
 
@@ -236,6 +240,124 @@
             </div>
 
         </section>
+
+        <!-- MENU: PERHITUNGAN BARANG (HPP & ANALISIS LABA) -->
+        <section id="menu-calculator" class="hidden fade-in h-full flex flex-col overflow-y-auto">
+            <div class="mb-6 glass-panel p-4 rounded-2xl flex flex-wrap justify-between items-center gap-4">
+                <div>
+                    <h2 class="text-2xl font-bold text-slate-800">Perhitungan Barang & Analisis HPP</h2>
+                    <p class="text-sm text-slate-500">Simulasi harga modal, harga jual, HPP, dan estimasi laba bersih produk</p>
+                </div>
+                <button onclick="resetCalcForm()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-2 rounded-xl text-sm font-medium transition flex items-center gap-2">
+                    <i class="ph ph-arrow-counter-clockwise"></i> Reset Form
+                </button>
+            </div>
+
+            <!-- 3 Kartu Ringkasan Utama -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div class="glass-panel p-4 rounded-2xl border-l-4 border-blue-500">
+                    <div class="text-slate-500 text-sm font-medium">Total Penjualan (Omset)</div>
+                    <div class="text-2xl font-bold text-slate-800 mt-1" id="calc-res-sales">Rp 0</div>
+                    <div class="text-xs text-slate-400 mt-1" id="calc-res-qty-info">0 unit × Rp 0</div>
+                </div>
+                <div class="glass-panel p-4 rounded-2xl border-l-4 border-amber-500">
+                    <div class="text-slate-500 text-sm font-medium">Total HPP (Modal Keseluruhan)</div>
+                    <div class="text-2xl font-bold text-amber-600 mt-1" id="calc-res-hpp">Rp 0</div>
+                    <div class="text-xs text-slate-400 mt-1" id="calc-res-hpp-unit">HPP per unit: Rp 0</div>
+                </div>
+                <div class="glass-panel p-4 rounded-2xl border-l-4 border-emerald-500">
+                    <div class="flex justify-between items-center">
+                        <span class="text-slate-500 text-sm font-medium">Estimasi Laba Bersih</span>
+                        <span id="calc-res-margin" class="bg-emerald-100 text-emerald-700 text-xs font-bold px-2 py-0.5 rounded-full">Margin 0%</span>
+                    </div>
+                    <div class="text-2xl font-bold text-emerald-600 mt-1" id="calc-res-profit">Rp 0</div>
+                    <div class="text-xs text-slate-400 mt-1" id="calc-res-profit-unit">Laba per unit: Rp 0</div>
+                </div>
+            </div>
+
+            <!-- Form Input & Daftar Perbandingan -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                <!-- Kolom Kiri: Form Pencatatan & Simulasi -->
+                <div class="lg:col-span-5 glass-panel p-6 rounded-2xl flex flex-col gap-4 h-fit">
+                    <h3 class="font-bold text-lg text-slate-800 border-b border-slate-200/60 pb-2">Input Data Produk</h3>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-slate-600 mb-1">Ambil dari Master Produk (Opsional)</label>
+                        <select id="calc-select-product" onchange="fillCalcFromProduct()" class="w-full p-2.5 rounded-xl border border-slate-300 focus:border-blue-500 outline-none bg-white text-sm">
+                            <option value="">-- Input Manual / Produk Baru --</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-slate-600 mb-1">Nama Produk</label>
+                        <input type="text" id="calc-name" placeholder="Contoh: Souvenir Tumbler Custom" oninput="calculateProductProfit()" class="w-full p-2.5 rounded-xl border border-slate-300 focus:border-blue-500 outline-none">
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-600 mb-1">Harga Modal / Beli (Rp)</label>
+                            <input type="number" id="calc-cost" min="0" value="0" oninput="calculateProductProfit()" class="w-full p-2.5 rounded-xl border border-slate-300 focus:border-blue-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-600 mb-1">Biaya Tambahan/Unit (Rp)</label>
+                            <input type="number" id="calc-extra" min="0" value="0" placeholder="Kemasan, admin, dll" oninput="calculateProductProfit()" class="w-full p-2.5 rounded-xl border border-slate-300 focus:border-blue-500 outline-none">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-600 mb-1">Harga Jual (Rp)</label>
+                            <input type="number" id="calc-sell" min="0" value="0" oninput="calculateProductProfit()" class="w-full p-2.5 rounded-xl border border-slate-300 focus:border-blue-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-600 mb-1">Target Terjual (Qty)</label>
+                            <input type="number" id="calc-qty" min="1" value="1" oninput="calculateProductProfit()" class="w-full p-2.5 rounded-xl border border-slate-300 focus:border-blue-500 outline-none">
+                        </div>
+                    </div>
+
+                    <button type="button" onclick="saveCalculationToList()" class="mt-2 w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl shadow-lg transition flex items-center justify-center gap-2">
+                        <i class="ph ph-plus-circle text-lg"></i> Catat ke Daftar Analisis
+                    </button>
+                </div>
+
+                <!-- Kolom Kanan: Tabel Hasil Pencatatan & Analisis -->
+                <div class="lg:col-span-7 glass-panel p-6 rounded-2xl flex flex-col">
+                    <div class="flex justify-between items-center border-b border-slate-200/60 pb-3 mb-4">
+                        <h3 class="font-bold text-lg text-slate-800">Daftar Analisis Keuntungan Produk</h3>
+                        <span class="text-xs text-slate-500" id="calc-list-count">0 item dicatat</span>
+                    </div>
+
+                    <div class="overflow-x-auto flex-1">
+                        <table class="w-full text-left text-sm whitespace-nowrap">
+                            <thead class="bg-slate-100/70 text-slate-600">
+                                <tr>
+                                    <th class="p-3 font-semibold">Produk</th>
+                                    <th class="p-3 font-semibold text-center">Qty</th>
+                                    <th class="p-3 font-semibold text-right">Total Penjualan</th>
+                                    <th class="p-3 font-semibold text-right">HPP</th>
+                                    <th class="p-3 font-semibold text-right">Est. Laba Bersih</th>
+                                    <th class="p-3 font-semibold text-center">Aksi</th>
+                                </tr>
+                            </thead>
+                            <tbody id="calc-table-body" class="divide-y divide-slate-200/50">
+                                <tr>
+                                    <td colspan="6" class="p-6 text-center text-slate-400">Belum ada perhitungan yang dicatat.</td>
+                                </tr>
+                            </tbody>
+                            <tfoot id="calc-table-footer" class="bg-slate-50/80 font-bold text-slate-800 hidden border-t-2 border-slate-200">
+                                <tr>
+                                    <td class="p-3" colspan="2">TOTAL KESELURUHAN</td>
+                                    <td class="p-3 text-right text-blue-600" id="calc-foot-sales">Rp 0</td>
+                                    <td class="p-3 text-right text-amber-600" id="calc-foot-hpp">Rp 0</td>
+                                    <td class="p-3 text-right text-emerald-600" id="calc-foot-profit">Rp 0</td>
+                                    <td></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
     </main>
 
     <!-- MODAL: ADD PRODUCT -->
@@ -395,6 +517,37 @@
     <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>
 
     <script>
+
+        async function switchMenu(menuId) {
+            document.querySelectorAll('.menu-item').forEach(el => el.classList.remove('active'));
+            document.getElementById(`nav-${menuId}`).classList.add('active');
+
+            // Tambahkan 'calculator' di array ini
+            ['sales', 'master', 'inventory', 'reports', 'calculator'].forEach(id => {
+                document.getElementById(`menu-${id}`).classList.add('hidden');
+            });
+            document.getElementById(`menu-${menuId}`).classList.remove('hidden');
+
+            setLoading(true);
+            if (menuId === 'master') {
+                await fetchProducts();
+                renderMasterTable();
+            } else if (menuId === 'inventory') {
+                await fetchProducts();
+                renderInventoryTable();
+            } else if (menuId === 'sales') {
+                await fetchProducts();
+                renderSalesProducts();
+            } else if (menuId === 'reports') {
+                await Promise.all([fetchProducts(), fetchTransactions()]);
+                renderReports();
+            } else if (menuId === 'calculator') {
+                await fetchProducts();
+                initCalculatorMenu();
+            }
+            setLoading(false);
+        }
+
         // --- KONFIGURASI SUPABASE ---
         const SUPABASE_URL = 'https://zwaenwwuhhsooleghmgm.supabase.co';
         const SUPABASE_ANON_KEY = 'sb_publishable_M0EpE8T6dbW8sSNNgzCKIw_yMaQPP8d';
@@ -1039,6 +1192,151 @@
                     <td class="py-3 text-right font-bold text-emerald-600">${formatRupiah(t.total)}</td>
                 </tr>
             `}).join('') : `<tr><td colspan="4" class="py-4 text-center text-slate-400">Belum ada transaksi</td></tr>`;
+        }
+
+        // --- PERHITUNGAN BARANG (HPP & PROFIT ANALYSIS) LOGIC ---
+        let savedCalculations = [];
+
+        function initCalculatorMenu() {
+            const select = document.getElementById('calc-select-product');
+            select.innerHTML = `<option value="">-- Input Manual / Produk Baru --</option>` + 
+                cacheProducts.map(p => `<option value="${p.sku}">${p.sku} - ${p.name}</option>`).join('');
+            calculateProductProfit();
+        }
+
+        function fillCalcFromProduct() {
+            const sku = document.getElementById('calc-select-product').value;
+            if (!sku) {
+                resetCalcForm();
+                return;
+            }
+            const product = cacheProducts.find(p => p.sku === sku);
+            if (product) {
+                document.getElementById('calc-name').value = product.name;
+                document.getElementById('calc-cost').value = product.costPrice;
+                document.getElementById('calc-sell').value = product.sellPrice;
+                document.getElementById('calc-extra').value = 0;
+                document.getElementById('calc-qty').value = 1;
+                calculateProductProfit();
+            }
+        }
+
+        function calculateProductProfit() {
+            const costPrice = Number(document.getElementById('calc-cost').value) || 0;
+            const extraCost = Number(document.getElementById('calc-extra').value) || 0;
+            const sellPrice = Number(document.getElementById('calc-sell').value) || 0;
+            const qty = Math.max(1, Number(document.getElementById('calc-qty').value) || 1);
+
+            const hppPerUnit = costPrice + extraCost;
+            const totalHpp = hppPerUnit * qty;
+            const totalSales = sellPrice * qty;
+            const netProfit = totalSales - totalHpp;
+            const profitPerUnit = sellPrice - hppPerUnit;
+            const marginPercent = totalSales > 0 ? ((netProfit / totalSales) * 100).toFixed(1) : 0;
+
+            // Update tampilan kartu ringkasan
+            document.getElementById('calc-res-sales').innerText = formatRupiah(totalSales);
+            document.getElementById('calc-res-qty-info').innerText = `${qty} unit × ${formatRupiah(sellPrice)}`;
+
+            document.getElementById('calc-res-hpp').innerText = formatRupiah(totalHpp);
+            document.getElementById('calc-res-hpp-unit').innerText = `HPP per unit: ${formatRupiah(hppPerUnit)}`;
+
+            const profitEl = document.getElementById('calc-res-profit');
+            const marginEl = document.getElementById('calc-res-margin');
+            
+            profitEl.innerText = formatRupiah(netProfit);
+            document.getElementById('calc-res-profit-unit').innerText = `Laba per unit: ${formatRupiah(profitPerUnit)}`;
+            marginEl.innerText = `Margin ${marginPercent}%`;
+
+            // Ubah indikator warna jika rugi (< 0)
+            if (netProfit < 0) {
+                profitEl.className = 'text-2xl font-bold text-red-600 mt-1';
+                marginEl.className = 'bg-red-100 text-red-700 text-xs font-bold px-2 py-0.5 rounded-full';
+            } else {
+                profitEl.className = 'text-2xl font-bold text-emerald-600 mt-1';
+                marginEl.className = 'bg-emerald-100 text-emerald-700 text-xs font-bold px-2 py-0.5 rounded-full';
+            }
+
+            return { totalSales, totalHpp, netProfit, marginPercent, qty, hppPerUnit, sellPrice };
+        }
+
+        function saveCalculationToList() {
+            const name = document.getElementById('calc-name').value.trim();
+            if (!name) {
+                showToast('Masukkan nama produk terlebih dahulu', 'error');
+                return;
+            }
+
+            const calc = calculateProductProfit();
+            savedCalculations.push({
+                id: Date.now(),
+                name: name,
+                ...calc
+            });
+
+            renderCalculationTable();
+            showToast('Perhitungan ditambahkan ke daftar');
+        }
+
+        function removeCalculationItem(id) {
+            savedCalculations = savedCalculations.filter(item => item.id !== id);
+            renderCalculationTable();
+        }
+
+        function renderCalculationTable() {
+            const tbody = document.getElementById('calc-table-body');
+            const tfoot = document.getElementById('calc-table-footer');
+            document.getElementById('calc-list-count').innerText = `${savedCalculations.length} item dicatat`;
+
+            if (savedCalculations.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" class="p-6 text-center text-slate-400">Belum ada perhitungan yang dicatat.</td></tr>`;
+                tfoot.classList.add('hidden');
+                return;
+            }
+
+            let sumSales = 0, sumHpp = 0, sumProfit = 0;
+
+            tbody.innerHTML = savedCalculations.map(item => {
+                sumSales += item.totalSales;
+                sumHpp += item.totalHpp;
+                sumProfit += item.netProfit;
+                const isLoss = item.netProfit < 0;
+
+                return `
+                <tr class="hover:bg-slate-50/50 transition">
+                    <td class="p-3">
+                        <div class="font-medium text-slate-800">${item.name}</div>
+                        <div class="text-xs text-slate-400">Modal/unit: ${formatRupiah(item.hppPerUnit)} | Jual: ${formatRupiah(item.sellPrice)}</div>
+                    </td>
+                    <td class="p-3 text-center font-semibold">${item.qty}</td>
+                    <td class="p-3 text-right font-medium text-blue-600">${formatRupiah(item.totalSales)}</td>
+                    <td class="p-3 text-right text-amber-600">${formatRupiah(item.totalHpp)}</td>
+                    <td class="p-3 text-right font-bold ${isLoss ? 'text-red-600' : 'text-emerald-600'}">
+                        ${formatRupiah(item.netProfit)}
+                        <span class="block text-xs font-normal">(${item.marginPercent}%)</span>
+                    </td>
+                    <td class="p-3 text-center">
+                        <button onclick="removeCalculationItem(${item.id})" class="bg-red-100 text-red-600 hover:bg-red-600 hover:text-white px-2.5 py-1 rounded-lg text-xs transition">
+                            <i class="ph ph-trash"></i>
+                        </button>
+                    </td>
+                </tr>`;
+            }).join('');
+
+            document.getElementById('calc-foot-sales').innerText = formatRupiah(sumSales);
+            document.getElementById('calc-foot-hpp').innerText = formatRupiah(sumHpp);
+            document.getElementById('calc-foot-profit').innerText = formatRupiah(sumProfit);
+            tfoot.classList.remove('hidden');
+        }
+
+        function resetCalcForm() {
+            document.getElementById('calc-select-product').value = '';
+            document.getElementById('calc-name').value = '';
+            document.getElementById('calc-cost').value = 0;
+            document.getElementById('calc-extra').value = 0;
+            document.getElementById('calc-sell').value = 0;
+            document.getElementById('calc-qty').value = 1;
+            calculateProductProfit();
         }
 
         // --- INIT ---
