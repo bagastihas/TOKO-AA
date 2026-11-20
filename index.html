@@ -519,34 +519,37 @@
     <script>
 
         async function switchMenu(menuId) {
-            document.querySelectorAll('.menu-item').forEach(el => el.classList.remove('active'));
-            document.getElementById(`nav-${menuId}`).classList.add('active');
+    document.querySelectorAll('.menu-item').forEach(el => el.classList.remove('active'));
+    document.getElementById(`nav-${menuId}`).classList.add('active');
 
-            // Tambahkan 'calculator' di array ini
-            ['sales', 'master', 'inventory', 'reports', 'calculator'].forEach(id => {
-                document.getElementById(`menu-${id}`).classList.add('hidden');
-            });
-            document.getElementById(`menu-${menuId}`).classList.remove('hidden');
+    const menus = ['sales', 'master', 'inventory', 'reports', 'calculator'];
+    menus.forEach(id => {
+        const sec = document.getElementById(`menu-${id}`);
+        if (sec) sec.classList.add('hidden');
+    });
 
-            setLoading(true);
-            if (menuId === 'master') {
-                await fetchProducts();
-                renderMasterTable();
-            } else if (menuId === 'inventory') {
-                await fetchProducts();
-                renderInventoryTable();
-            } else if (menuId === 'sales') {
-                await fetchProducts();
-                renderSalesProducts();
-            } else if (menuId === 'reports') {
-                await Promise.all([fetchProducts(), fetchTransactions()]);
-                renderReports();
-            } else if (menuId === 'calculator') {
-                await fetchProducts();
-                initCalculatorMenu();
-            }
-            setLoading(false);
-        }
+    const activeSec = document.getElementById(`menu-${menuId}`);
+    if (activeSec) activeSec.classList.remove('hidden');
+
+    setLoading(true);
+    if (menuId === 'master') {
+        await fetchProducts();
+        renderMasterTable();
+    } else if (menuId === 'inventory') {
+        await fetchProducts();
+        renderInventoryTable();
+    } else if (menuId === 'sales') {
+        await fetchProducts();
+        renderSalesProducts();
+    } else if (menuId === 'reports') {
+        await Promise.all([fetchProducts(), fetchTransactions()]);
+        renderReports();
+    } else if (menuId === 'calculator') {
+        await fetchProducts();
+        initCalculatorMenu();
+    }
+    setLoading(false);
+}
 
         // --- KONFIGURASI SUPABASE ---
         const SUPABASE_URL = 'https://zwaenwwuhhsooleghmgm.supabase.co';
@@ -630,33 +633,6 @@
             }
             cacheTransactions = data;
             return cacheTransactions;
-        }
-
-        // --- UI NAVIGATION ---
-        async function switchMenu(menuId) {
-            document.querySelectorAll('.menu-item').forEach(el => el.classList.remove('active'));
-            document.getElementById(`nav-${menuId}`).classList.add('active');
-
-            ['sales', 'master', 'inventory', 'reports'].forEach(id => {
-                document.getElementById(`menu-${id}`).classList.add('hidden');
-            });
-            document.getElementById(`menu-${menuId}`).classList.remove('hidden');
-
-            setLoading(true);
-            if (menuId === 'master') {
-                await fetchProducts();
-                renderMasterTable();
-            } else if (menuId === 'inventory') {
-                await fetchProducts();
-                renderInventoryTable();
-            } else if (menuId === 'sales') {
-                await fetchProducts();
-                renderSalesProducts();
-            } else if (menuId === 'reports') {
-                await Promise.all([fetchProducts(), fetchTransactions()]);
-                renderReports();
-            }
-            setLoading(false);
         }
 
         function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
